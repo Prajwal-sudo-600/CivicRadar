@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0"
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -18,8 +18,8 @@ Deno.serve(async (req) => {
   try {
     const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    if (!ANTHROPIC_API_KEY) {
-      throw new Error("ANTHROPIC_API_KEY environment variable is not configured");
+    if (!GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY environment variable is not configured");
     }
 
     // 1. Query aggregated statistics from Postgres
@@ -140,33 +140,38 @@ You must respond ONLY with a valid JSON array of 3 objects matching this structu
   }
 ]`;
 
-    // Call Anthropic API
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    // Call Gemini API
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 1500,
-        messages: [
+        contents: [
           {
-            role: "user",
-            content: prompt,
+            parts: [
+              {
+                text: prompt,
+              },
+            ],
           },
         ],
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`Claude API request failed: ${response.status} - ${errText}`);
+      throw new Error(`Gemini API request failed: ${response.status} - ${errText}`);
     }
 
-    const claudeResult = await response.json();
-    const responseText = claudeResult.content[0].text.trim();
+    const geminiResult = await response.json();
+    if (!geminiResult.candidates || geminiResult.candidates.length === 0) {
+      throw new Error("Gemini API returned no candidates");
+    }
+    const responseText = geminiResult.candidates[0].content.parts[0].text.trim();
 
     // Parse JSON response
     let insightsArray: any[] = [];
@@ -179,7 +184,7 @@ You must respond ONLY with a valid JSON array of 3 objects matching this structu
         insightsArray = JSON.parse(responseText);
       }
     } catch (e) {
-      console.error("Failed to parse JSON response from Claude:", responseText);
+      console.error("Failed to parse JSON response from Gemini:", responseText);
       throw new Error("Invalid JSON response from AI model");
     }
 

@@ -326,7 +326,7 @@ export const useIssueStore = create<IssueStore>((set, get) => ({
 
       if (error) throw error;
 
-      // 3. Trigger Claude AI classification Edge Function asynchronously in the background
+      // 3. Trigger Gemini AI classification Edge Function asynchronously in the background
       // Note: In local Supabase setups, webhooks execute this automatically.
       // We will also trigger a direct call as a backup.
       fetch(`${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/categorize-issue`, {

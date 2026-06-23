@@ -1,6 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.39.0"
 
-const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
 const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
 
@@ -61,9 +61,9 @@ Deno.serve(async (req) => {
       console.error("Error fetching nearby issues:", nearbyError);
     }
 
-    // 2. Query Claude API with vision capability
-    if (!ANTHROPIC_API_KEY) {
-      throw new Error("ANTHROPIC_API_KEY environment variable is not configured");
+    // 2. Query Gemini API with vision capability
+    if (!GEMINI_API_KEY) {
+      throw new Error("GEMINI_API_KEY environment variable is not configured");
     }
 
     // Prepare nearby issues description for Claude duplicate check
@@ -103,51 +103,49 @@ You must respond ONLY with a valid JSON object matching the following structure:
       new Uint8Array(imageBuffer).reduce((data, byte) => data + String.fromCharCode(byte), "")
     );
 
-    // Call Anthropic API
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    // Call Gemini API
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${GEMINI_API_KEY}`, {
       method: "POST",
       headers: {
-        "x-api-key": ANTHROPIC_API_KEY,
-        "anthropic-version": "2023-06-01",
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-3-5-sonnet-20241022",
-        max_tokens: 1000,
-        messages: [
+        contents: [
           {
-            role: "user",
-            content: [
+            parts: [
               {
-                type: "image",
-                source: {
-                  type: "base64",
-                  media_type: contentType,
+                inlineData: {
+                  mimeType: contentType,
                   data: base64Image,
                 },
               },
               {
-                type: "text",
                 text: `${prompt}\n\nUser Description: ${description || "No description provided."}`,
               },
             ],
           },
         ],
+        generationConfig: {
+          responseMimeType: "application/json",
+        },
       }),
     });
 
     if (!response.ok) {
       const errText = await response.text();
-      throw new Error(`Claude API request failed: ${response.status} - ${errText}`);
+      throw new Error(`Gemini API request failed: ${response.status} - ${errText}`);
     }
 
-    const claudeResult = await response.json();
-    const responseText = claudeResult.content[0].text.trim();
+    const geminiResult = await response.json();
+    if (!geminiResult.candidates || geminiResult.candidates.length === 0) {
+      throw new Error("Gemini API returned no candidates");
+    }
+    const responseText = geminiResult.candidates[0].content.parts[0].text.trim();
     
     // Parse the JSON response
     let aiData;
     try {
-      // Find JSON block if Claude wrapped it in markdown
+      // Find JSON block if Gemini wrapped it in markdown
       const jsonStart = responseText.indexOf("{");
       const jsonEnd = responseText.lastIndexOf("}");
       if (jsonStart !== -1 && jsonEnd !== -1) {
@@ -156,7 +154,7 @@ You must respond ONLY with a valid JSON object matching the following structure:
         aiData = JSON.parse(responseText);
       }
     } catch (e) {
-      console.error("Failed to parse JSON response from Claude:", responseText);
+      console.error("Failed to parse JSON response from Gemini:", responseText);
       throw new Error("Invalid JSON response from AI model");
     }
 

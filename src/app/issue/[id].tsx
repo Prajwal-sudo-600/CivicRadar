@@ -150,7 +150,7 @@ export default function IssueDetailsScreen() {
             {/* AI Summary Banner */}
             {issue.ai_summary && (
               <View style={[styles.aiSummaryCard, { backgroundColor: colors.backgroundElement }]}>
-                <ThemedText type="smallBold" style={styles.aiLabel}>🤖 CLAUDE AI SUMMARY</ThemedText>
+                <ThemedText type="smallBold" style={styles.aiLabel}>🤖 GEMINI AI SUMMARY</ThemedText>
                 <ThemedText type="small" style={styles.aiText}>{issue.ai_summary}</ThemedText>
                 {issue.ai_confidence_score !== null && (
                   <ThemedText type="small" style={styles.aiConfidence}>

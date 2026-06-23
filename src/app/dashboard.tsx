@@ -121,7 +121,7 @@ export default function DashboardScreen() {
           {/* AI Weekly Insights List */}
           <View style={styles.section}>
             <View style={styles.sectionHeader}>
-              <ThemedText type="smallBold" style={styles.sectionTitle}>🤖 CLAUDE PREDICTIVE INSIGHTS</ThemedText>
+              <ThemedText type="smallBold" style={styles.sectionTitle}>🤖 GEMINI PREDICTIVE INSIGHTS</ThemedText>
               <View style={styles.aiBadge}>
                 <ThemedText type="smallBold" style={{ fontSize: 9, color: '#fff' }}>AUTO RUN WEEKLY</ThemedText>
               </View>
