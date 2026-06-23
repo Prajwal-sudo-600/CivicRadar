@@ -35,7 +35,7 @@ export default function LoginScreen() {
 
   const handleMockLogin = async (isAdmin = false) => {
     try {
-      const mockEmail = isAdmin ? 'admin@communityhero.org' : 'jane.doe@communityhero.org';
+      const mockEmail = isAdmin ? 'admin@civichero.org' : 'jane.doe@civichero.org';
       await signIn(mockEmail, 'password');
       
       if (isAdmin) {
@@ -56,7 +56,7 @@ export default function LoginScreen() {
           
           <View style={styles.logoSection}>
             <ThemedText type="title" style={{ fontSize: 32 }}>🚨</ThemedText>
-            <ThemedText type="title" style={styles.logoText}>Community Hero</ThemedText>
+            <ThemedText type="title" style={styles.logoText}>Civic Hero</ThemedText>
             <ThemedText type="small" style={{ color: colors.textSecondary, textAlign: 'center' }}>
               Connect. Verify. Track. Resolve.
             </ThemedText>
@@ -68,7 +68,7 @@ export default function LoginScreen() {
             <TextInput
               value={email}
               onChangeText={(t) => { setEmail(t); clearError(); }}
-              placeholder="citizen@communityhero.org"
+              placeholder="citizen@civichero.org"
               placeholderTextColor={colors.textSecondary}
               autoCapitalize="none"
               keyboardType="email-address"

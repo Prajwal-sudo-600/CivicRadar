@@ -1,22 +1,136 @@
-import React from 'react';
-import { View, StyleSheet, ScrollView, Pressable, Platform, Dimensions } from 'react-native';
+/* eslint-disable react-hooks/immutability */
+import React, { useEffect, useCallback } from 'react';
+import { View, StyleSheet, ScrollView, Pressable, Dimensions, RefreshControl, useColorScheme } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import Svg, { Rect, Path, Circle, Defs, LinearGradient, Stop, G, Text as SvgText } from 'react-native-svg';
-import { useColorScheme } from 'react-native';
+import Svg, { Path, Circle, Defs, LinearGradient, Stop, Text as SvgText } from 'react-native-svg';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  useAnimatedProps,
+  withTiming,
+  withDelay,
+  withSpring,
+  withRepeat,
+  withSequence,
+  Easing,
+  FadeInUp,
+  FadeIn,
+} from 'react-native-reanimated';
 
 import { ThemedText } from '@/components/themed-text';
 import { ThemedView } from '@/components/themed-view';
+import { AnimatedCounter } from '@/components/AnimatedCounter';
 import { useIssueStore } from '../store/useIssueStore';
 import { useAuthStore } from '../store/useAuthStore';
 import { Theme, IssueCategory } from '../styles/theme';
 import { BottomTabInset, MaxContentWidth, Spacing } from '@/constants/theme';
 
+// Create animated SVG components for line chart animation
+const AnimatedPath = Animated.createAnimatedComponent(Path);
+
+// ─── Animated Bar Component ───────────────────────────────────────────────────
+function AnimatedBar({ targetHeight, color, index }: { targetHeight: number; color: string; index: number }) {
+  'use no memo';
+  const heightValue = useSharedValue(0);
+
+  useEffect(() => {
+    heightValue.value = withDelay(
+      index * 70,
+      withSpring(targetHeight, { damping: 12, stiffness: 100 })
+    );
+  }, [targetHeight, index, heightValue]);
+
+  const animatedBarStyle = useAnimatedStyle(() => ({
+    height: `${heightValue.value}%`,
+    backgroundColor: color,
+    borderTopLeftRadius: 4,
+    borderTopRightRadius: 4,
+    width: '100%',
+  }));
+
+  return <Animated.View style={animatedBarStyle} />;
+}
+
+// ─── Press-Feedback Wrapper ───────────────────────────────────────────────────
+function PressableCard({
+  children,
+  style,
+  onPress,
+}: {
+  children: React.ReactNode;
+  style?: any;
+  onPress?: () => void;
+}) {
+  'use no memo';
+  const scale = useSharedValue(1);
+
+  const animatedScale = useAnimatedStyle(() => ({
+    transform: [{ scale: scale.value }],
+  }));
+
+  return (
+    <Pressable
+      onPressIn={useCallback(() => {
+        scale.value = withSpring(0.97, { damping: 15, stiffness: 200 });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [])}
+      onPressOut={useCallback(() => {
+        scale.value = withSpring(1, { damping: 15, stiffness: 200 });
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [])}
+      onPress={onPress}
+    >
+      <Animated.View style={[style, animatedScale]}>{children}</Animated.View>
+    </Pressable>
+  );
+}
+
+// ─── Pulsing Badge Component ──────────────────────────────────────────────────
+function PulsingBadge() {
+  'use no memo';
+  const pulseOpacity = useSharedValue(1);
+
+  useEffect(() => {
+    pulseOpacity.value = withRepeat(
+      withSequence(
+        withTiming(1, { duration: 1000 }),
+        withTiming(0.5, { duration: 1000 })
+      ),
+      -1,
+      true
+    );
+  }, [pulseOpacity]);
+
+  const pulseStyle = useAnimatedStyle(() => ({
+    opacity: pulseOpacity.value,
+  }));
+
+  return (
+    <Animated.View style={[styles.aiBadge, pulseStyle]}>
+      <ThemedText type="smallBold" style={{ fontSize: 9, color: '#fff' }}>
+        AUTO RUN WEEKLY
+      </ThemedText>
+    </Animated.View>
+  );
+}
+
+// ─── Main Dashboard Screen ───────────────────────────────────────────────────
 export default function DashboardScreen() {
+  'use no memo';
   const scheme = useColorScheme();
   const colors = Theme.colors[scheme === 'dark' ? 'dark' : 'light'];
+  const isDark = scheme === 'dark';
 
-  const { issues, insights, leaderboard } = useIssueStore();
+  const { issues, insights, leaderboard, fetchIssues, fetchInsights } = useIssueStore();
   const { profile } = useAuthStore();
+
+  // Pull-to-refresh state
+  const [refreshing, setRefreshing] = React.useState(false);
+  const onRefresh = useCallback(async () => {
+    setRefreshing(true);
+    await Promise.all([fetchIssues(), fetchInsights()]);
+    setRefreshing(false);
+  }, [fetchIssues, fetchInsights]);
 
   // 1. Calculate General Aggregations
   const totalReported = issues.length;
@@ -77,6 +191,38 @@ export default function DashboardScreen() {
   const linePathStr = getLinePathString(linePoints);
   const areaPathStr = getAreaPathString(linePoints, screenWidth, chartHeight);
 
+  // ─── Line Chart Animation ────────────────────────────────────────────────
+  // Calculate approximate total path length for stroke-dashoffset animation
+  const totalPathLength = linePoints.reduce((sum, pt, idx) => {
+    if (idx === 0) return 0;
+    const prev = linePoints[idx - 1];
+    return sum + Math.sqrt(Math.pow(pt.x - prev.x, 2) + Math.pow(pt.y - prev.y, 2));
+  }, 0);
+
+  const strokeProgress = useSharedValue(totalPathLength);
+  const areaOpacity = useSharedValue(0);
+
+  useEffect(() => {
+    // Delay line chart animation to start after bars
+    strokeProgress.value = withDelay(
+      500,
+      withTiming(0, { duration: 1200, easing: Easing.out(Easing.cubic) })
+    );
+    areaOpacity.value = withDelay(
+      1200,
+      withTiming(1, { duration: 600, easing: Easing.out(Easing.cubic) })
+    );
+  }, [strokeProgress, areaOpacity]);
+
+  const animatedLineProps = useAnimatedProps(() => ({
+    strokeDasharray: `${totalPathLength}`,
+    strokeDashoffset: strokeProgress.value,
+  }));
+
+  const animatedAreaStyle = useAnimatedStyle(() => ({
+    opacity: areaOpacity.value,
+  }));
+
   // Icon mapping for insights
   const getInsightIcon = (type: string) => {
     if (type === 'weekly_summary') return '📈';
@@ -84,143 +230,226 @@ export default function DashboardScreen() {
     return '⚡';
   };
 
+  // Glass card background based on theme
+  const glassCardBg = isDark
+    ? { backgroundColor: 'rgba(33, 34, 37, 0.65)' }
+    : { backgroundColor: 'rgba(240, 240, 243, 0.85)' };
+
   return (
     <ThemedView style={styles.container}>
       <SafeAreaView style={styles.safeArea}>
-        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scrollContent}>
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.scrollContent}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={onRefresh}
+              tintColor={Theme.colors.primary}
+              colors={[Theme.colors.primary]}
+            />
+          }
+        >
           
-          {/* Dashboard Header */}
-          <View style={styles.header}>
-            <ThemedText type="subtitle" style={styles.headerTitle}>IMPACT & INSIGHTS</ThemedText>
-            <ThemedText type="small" style={{ color: colors.textSecondary }}>
-              City-wide resolution tracking, neighborhood stats, and predictive hotspots.
-            </ThemedText>
-          </View>
+          {/* ─── Dashboard Header with Gradient Backdrop ─── */}
+          <Animated.View
+            entering={FadeInUp.duration(500).delay(0).easing(Easing.out(Easing.cubic))}
+          >
+            <View style={[styles.headerBackdrop, isDark ? styles.headerBackdropDark : styles.headerBackdropLight]}>
+              <ThemedText type="subtitle" style={styles.headerTitle}>IMPACT & INSIGHTS</ThemedText>
+              <ThemedText type="small" style={{ color: colors.textSecondary }}>
+                City-wide resolution tracking, neighborhood stats, and predictive hotspots.
+              </ThemedText>
+            </View>
+          </Animated.View>
 
-          {/* Quick Metrics Grid */}
-          <View style={styles.metricsGrid}>
-            <View style={[styles.metricCard, { backgroundColor: colors.backgroundElement }]}>
+          {/* ─── Quick Metrics Grid (Glassmorphic Cards) ─── */}
+          <Animated.View
+            entering={FadeInUp.duration(500).delay(100).easing(Easing.out(Easing.cubic))}
+            style={styles.metricsGrid}
+          >
+            {/* Reported */}
+            <PressableCard style={[styles.metricCard, glassCardBg]}>
               <ThemedText type="small" style={styles.metricLabel}>REPORTED</ThemedText>
-              <ThemedText type="title" style={{ color: Theme.colors.primary }}>{totalReported}</ThemedText>
+              <AnimatedCounter
+                value={totalReported}
+                color={Theme.colors.primary}
+                style={styles.metricNumber}
+                delay={200}
+              />
               <ThemedText type="small" style={styles.metricSub}>Issues reported</ThemedText>
-            </View>
+            </PressableCard>
 
-            <View style={[styles.metricCard, { backgroundColor: colors.backgroundElement }]}>
+            {/* Verified */}
+            <PressableCard style={[styles.metricCard, glassCardBg]}>
               <ThemedText type="small" style={styles.metricLabel}>VERIFIED</ThemedText>
-              <ThemedText type="title" style={{ color: Theme.colors.secondary }}>{totalVerified}</ThemedText>
+              <AnimatedCounter
+                value={totalVerified}
+                color={Theme.colors.secondary}
+                style={styles.metricNumber}
+                delay={350}
+              />
               <ThemedText type="small" style={styles.metricSub}>Active validation</ThemedText>
-            </View>
+            </PressableCard>
 
-            <View style={[styles.metricCard, { backgroundColor: colors.backgroundElement }]}>
+            {/* Resolution Rate */}
+            <PressableCard style={[styles.metricCard, glassCardBg]}>
               <ThemedText type="small" style={styles.metricLabel}>RESOLUTION</ThemedText>
-              <ThemedText type="title" style={{ color: Theme.colors.accent }}>{resolutionRate}%</ThemedText>
+              <AnimatedCounter
+                value={resolutionRate}
+                suffix="%"
+                color={Theme.colors.accent}
+                style={styles.metricNumber}
+                delay={500}
+              />
               <ThemedText type="small" style={styles.metricSub}>Overall rate</ThemedText>
-            </View>
-          </View>
+            </PressableCard>
+          </Animated.View>
 
-          {/* AI Weekly Insights List */}
-          <View style={styles.section}>
+          {/* ─── AI Weekly Insights List ─── */}
+          <Animated.View
+            entering={FadeInUp.duration(500).delay(200).easing(Easing.out(Easing.cubic))}
+            style={styles.section}
+          >
             <View style={styles.sectionHeader}>
               <ThemedText type="smallBold" style={styles.sectionTitle}>🤖 GEMINI PREDICTIVE INSIGHTS</ThemedText>
-              <View style={styles.aiBadge}>
-                <ThemedText type="smallBold" style={{ fontSize: 9, color: '#fff' }}>AUTO RUN WEEKLY</ThemedText>
-              </View>
+              <PulsingBadge />
             </View>
 
             <View style={styles.insightsList}>
-              {insights.map((ins) => (
-                <View key={ins.id} style={[styles.insightCard, { backgroundColor: colors.backgroundElement, borderLeftColor: ins.insight_type === 'hotspot' ? Theme.colors.severity.critical : Theme.colors.primary }]}>
-                  <View style={styles.insightHeader}>
-                    <ThemedText type="smallBold" style={styles.insightIcon}>{getInsightIcon(ins.insight_type)}</ThemedText>
-                    <ThemedText type="smallBold" style={styles.insightType}>
-                      {ins.insight_type.replace('_', ' ').toUpperCase()}
+              {insights.map((ins, index) => (
+                <Animated.View
+                  key={ins.id}
+                  entering={FadeInUp.duration(400).delay(300 + index * 80).easing(Easing.out(Easing.cubic))}
+                >
+                  <PressableCard
+                    style={[
+                      styles.insightCard,
+                      {
+                        backgroundColor: colors.backgroundElement,
+                        borderLeftColor: ins.insight_type === 'hotspot'
+                          ? Theme.colors.severity.critical
+                          : Theme.colors.primary,
+                      },
+                    ]}
+                  >
+                    <View style={styles.insightHeader}>
+                      <ThemedText type="smallBold" style={styles.insightIcon}>
+                        {getInsightIcon(ins.insight_type)}
+                      </ThemedText>
+                      <ThemedText type="smallBold" style={styles.insightType}>
+                        {ins.insight_type.replace('_', ' ').toUpperCase()}
+                      </ThemedText>
+                      <ThemedText type="small" style={styles.insightArea}>
+                        • {ins.related_area || 'City-Wide'}
+                      </ThemedText>
+                    </View>
+                    <ThemedText type="small" style={styles.insightText}>
+                      {ins.insight_text}
                     </ThemedText>
-                    <ThemedText type="small" style={styles.insightArea}>
-                      • {ins.related_area || 'City-Wide'}
-                    </ThemedText>
-                  </View>
-                  <ThemedText type="small" style={styles.insightText}>
-                    {ins.insight_text}
-                  </ThemedText>
-                </View>
+                  </PressableCard>
+                </Animated.View>
               ))}
             </View>
-          </View>
+          </Animated.View>
 
-          {/* Issues by Category Chart (Responsive SVG Bar Chart) */}
-          <View style={[styles.chartCard, { backgroundColor: colors.backgroundElement }]}>
-            <ThemedText type="smallBold" style={styles.chartTitle}>ISSUES BY CATEGORY</ThemedText>
-            <View style={styles.barChartContainer}>
-              {categoryCounts.map((c, i) => {
-                const barWidth = 14;
-                const barHeight = (c.count / maxCategoryCount) * 100; // Percentage height
-                
-                return (
-                  <View key={c.category} style={styles.barColumn}>
-                    <View style={styles.barTrack}>
-                      <View 
-                        style={[
-                          styles.barFill, 
-                          { 
-                            height: `${barHeight}%`, 
-                            backgroundColor: c.color,
-                            borderTopLeftRadius: 4,
-                            borderTopRightRadius: 4 
-                          }
-                        ]} 
-                      />
+          {/* ─── Issues by Category (Animated Bar Chart) ─── */}
+          <Animated.View
+            entering={FadeInUp.duration(500).delay(300).easing(Easing.out(Easing.cubic))}
+          >
+            <PressableCard style={[styles.chartCard, { backgroundColor: colors.backgroundElement }]}>
+              <ThemedText type="smallBold" style={styles.chartTitle}>ISSUES BY CATEGORY</ThemedText>
+              <View style={styles.barChartContainer}>
+                {categoryCounts.map((c, i) => {
+                  const barHeight = (c.count / maxCategoryCount) * 100;
+                  
+                  return (
+                    <View key={c.category} style={styles.barColumn}>
+                      <View style={styles.barTrack}>
+                        <AnimatedBar
+                          targetHeight={barHeight}
+                          color={c.color}
+                          index={i}
+                        />
+                      </View>
+                      <ThemedText type="small" style={styles.barCount}>{c.count}</ThemedText>
+                      <ThemedText type="small" numberOfLines={1} style={styles.barLabel}>
+                        {c.label.split(' ')[0]}
+                      </ThemedText>
                     </View>
-                    <ThemedText type="small" style={styles.barCount}>{c.count}</ThemedText>
-                    <ThemedText type="small" numberOfLines={1} style={styles.barLabel}>{c.label.split(' ')[0]}</ThemedText>
-                  </View>
-                );
-              })}
-            </View>
-          </View>
+                  );
+                })}
+              </View>
+            </PressableCard>
+          </Animated.View>
 
-          {/* Resolution Rate Trend (Line Chart) */}
-          <View style={[styles.chartCard, { backgroundColor: colors.backgroundElement }]}>
-            <ThemedText type="smallBold" style={styles.chartTitle}>RESOLVED ISSUES OVER TIME (MONTHLY)</ThemedText>
-            <View style={styles.lineChartContainer}>
-              <Svg width={screenWidth} height={chartHeight}>
-                <Defs>
-                  <LinearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
-                    <Stop offset="0%" stopColor={Theme.colors.primary} stopOpacity={0.3} />
-                    <Stop offset="100%" stopColor={Theme.colors.primary} stopOpacity={0.0} />
-                  </LinearGradient>
-                </Defs>
+          {/* ─── Resolution Trend (Animated Line Chart) ─── */}
+          <Animated.View
+            entering={FadeInUp.duration(500).delay(400).easing(Easing.out(Easing.cubic))}
+          >
+            <PressableCard style={[styles.chartCard, { backgroundColor: colors.backgroundElement }]}>
+              <ThemedText type="smallBold" style={styles.chartTitle}>RESOLVED ISSUES OVER TIME (MONTHLY)</ThemedText>
+              <View style={styles.lineChartContainer}>
+                <Svg width={screenWidth} height={chartHeight}>
+                  <Defs>
+                    <LinearGradient id="grad" x1="0%" y1="0%" x2="0%" y2="100%">
+                      <Stop offset="0%" stopColor={Theme.colors.primary} stopOpacity={0.3} />
+                      <Stop offset="100%" stopColor={Theme.colors.primary} stopOpacity={0.0} />
+                    </LinearGradient>
+                  </Defs>
 
-                {/* Fill Area */}
-                {areaPathStr && (
-                  <Path d={areaPathStr} fill="url(#grad)" />
-                )}
+                  {/* Fill Area — fades in after line draws */}
+                  {areaPathStr && (
+                    <Animated.View style={animatedAreaStyle}>
+                      <Svg width={screenWidth} height={chartHeight} style={{ position: 'absolute', top: 0, left: 0 }}>
+                        <Path d={areaPathStr} fill="url(#grad)" />
+                      </Svg>
+                    </Animated.View>
+                  )}
 
-                {/* Line Path */}
-                {linePathStr && (
-                  <Path d={linePathStr} fill="none" stroke={Theme.colors.primary} strokeWidth={2.5} />
-                )}
+                  {/* Animated Line Path */}
+                  {linePathStr && (
+                    <AnimatedPath
+                      d={linePathStr}
+                      fill="none"
+                      stroke={Theme.colors.primary}
+                      strokeWidth={2.5}
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      animatedProps={animatedLineProps}
+                    />
+                  )}
 
-                {/* Plot Circles */}
-                {linePoints.map((pt, idx) => (
-                  <Circle key={idx} cx={pt.x} cy={pt.y} r={4} fill={Theme.colors.primary} stroke={colors.background} strokeWidth={1.5} />
-                ))}
+                  {/* Plot Circles — stagger in after line completes */}
+                  {linePoints.map((pt, idx) => (
+                    <Animated.View
+                      key={idx}
+                      entering={FadeIn.delay(1300 + idx * 100).duration(300)}
+                      style={{ position: 'absolute', left: pt.x - 4, top: pt.y - 4 }}
+                    >
+                      <Svg width={8} height={8}>
+                        <Circle cx={4} cy={4} r={4} fill={Theme.colors.primary} stroke={colors.background} strokeWidth={1.5} />
+                      </Svg>
+                    </Animated.View>
+                  ))}
 
-                {/* Axis Labels */}
-                {linePoints.map((pt, idx) => (
-                  <SvgText
-                    key={`text-${idx}`}
-                    x={pt.x}
-                    y={chartHeight - 4}
-                    fontSize="9"
-                    fill={colors.textSecondary}
-                    textAnchor="middle"
-                  >
-                    {trendMonths[idx]}
-                  </SvgText>
-                ))}
-              </Svg>
-            </View>
-          </View>
+                  {/* Axis Labels */}
+                  {linePoints.map((pt, idx) => (
+                    <SvgText
+                      key={`text-${idx}`}
+                      x={pt.x}
+                      y={chartHeight - 4}
+                      fontSize="9"
+                      fill={colors.textSecondary}
+                      textAnchor="middle"
+                    >
+                      {trendMonths[idx]}
+                    </SvgText>
+                  ))}
+                </Svg>
+              </View>
+            </PressableCard>
+          </Animated.View>
 
         </ScrollView>
       </SafeAreaView>
@@ -228,6 +457,7 @@ export default function DashboardScreen() {
   );
 }
 
+// ─── Styles ──────────────────────────────────────────────────────────────────
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -244,25 +474,44 @@ const styles = StyleSheet.create({
     paddingVertical: Spacing.three,
     gap: Spacing.three,
   },
-  header: {
+
+  // ── Header ──
+  headerBackdrop: {
     marginBottom: Spacing.two,
+    paddingVertical: Spacing.four,
+    paddingHorizontal: Spacing.three,
+    borderRadius: 20,
   },
+  headerBackdropDark: {
+    experimental_backgroundImage: 'linear-gradient(135deg, rgba(99,102,241,0.15) 0%, rgba(139,92,246,0.08) 100%)',
+  } as any,
+  headerBackdropLight: {
+    experimental_backgroundImage: 'linear-gradient(135deg, rgba(99,102,241,0.08) 0%, rgba(139,92,246,0.04) 100%)',
+  } as any,
   headerTitle: {
     fontWeight: '800',
   },
+
+  // ── Metrics Grid ──
   metricsGrid: {
     flexDirection: 'row',
     gap: Spacing.two,
   },
   metricCard: {
     flex: 1,
-    borderRadius: 16,
-    padding: Spacing.three,
+    borderRadius: 20,
+    padding: Spacing.four,
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.04)',
-    ...Theme.shadows.small,
+    borderColor: 'rgba(255,255,255,0.06)',
+    ...Theme.shadows.premium,
+  },
+  metricNumber: {
+    fontSize: 48,
+    fontWeight: '600',
+    lineHeight: 52,
+    textAlign: 'center',
   },
   metricLabel: {
     fontSize: 9,
@@ -274,6 +523,8 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
     marginTop: Spacing.one / 2,
   },
+
+  // ── Insights Section ──
   section: {
     gap: Spacing.two,
   },
@@ -288,21 +539,23 @@ const styles = StyleSheet.create({
     color: '#8E8E93',
   },
   aiBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     backgroundColor: '#8B5CF6',
+    ...Theme.shadows.small,
   },
   insightsList: {
     gap: Spacing.two,
   },
   insightCard: {
-    borderRadius: 12,
+    borderRadius: 14,
     padding: Spacing.three,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.04)',
     borderLeftWidth: 4,
     gap: Spacing.one,
+    ...Theme.shadows.small,
   },
   insightHeader: {
     flexDirection: 'row',
@@ -325,18 +578,23 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 16,
   },
+
+  // ── Chart Cards ──
   chartCard: {
-    borderRadius: 16,
+    borderRadius: 18,
     padding: Spacing.three,
     borderWidth: 1,
     borderColor: 'rgba(255,255,255,0.04)',
     gap: Spacing.three,
+    ...Theme.shadows.medium,
   },
   chartTitle: {
     fontSize: 10,
     letterSpacing: 1.0,
     color: '#8E8E93',
   },
+
+  // ── Bar Chart ──
   barChartContainer: {
     flexDirection: 'row',
     height: 140,
@@ -357,9 +615,6 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-end',
     overflow: 'hidden',
   },
-  barFill: {
-    width: '100%',
-  },
   barCount: {
     fontSize: 10,
     marginTop: Spacing.one / 2,
@@ -370,6 +625,8 @@ const styles = StyleSheet.create({
     marginTop: 2,
     textAlign: 'center',
   },
+
+  // ── Line Chart ──
   lineChartContainer: {
     alignItems: 'center',
     justifyContent: 'center',

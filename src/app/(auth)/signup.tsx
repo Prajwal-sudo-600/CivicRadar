@@ -29,7 +29,7 @@ export default function SignupScreen() {
     try {
       await signUp(email.trim(), password.trim(), fullName.trim());
       router.replace('/profile');
-      Alert.alert('Registration Successful', 'Welcome to Community Hero! You earned +10 points.');
+      Alert.alert('Registration Successful', 'Welcome to Civic Hero! You earned +10 points.');
     } catch (err: any) {
       Alert.alert('Sign Up Failed', err.message || 'Error occurred.');
     }

@@ -61,11 +61,11 @@ export function CustomTabList(props: TabListProps) {
   return (
     <View {...props} style={styles.tabListContainer}>
       <ThemedView type="backgroundElement" style={styles.innerContainer}>
-        <ThemedText type="smallBold" style={styles.brandText}>
-          🚨 Community Hero
-        </ThemedText>
-
         {props.children}
+
+        <ThemedText type="smallBold" style={styles.brandText}>
+          🚨 Civic Hero
+        </ThemedText>
 
       </ThemedView>
     </View>
@@ -94,7 +94,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(99, 102, 241, 0.1)',
   },
   brandText: {
-    marginRight: 'auto',
+    marginLeft: 'auto',
   },
   pressed: {
     opacity: 0.7,
